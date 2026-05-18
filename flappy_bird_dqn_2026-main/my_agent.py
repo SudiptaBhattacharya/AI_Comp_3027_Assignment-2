@@ -3,10 +3,12 @@ import pygame
 from pytorch_mlp import MLPRegression
 import argparse
 from console import FlappyBirdEnv
+import random
 
 
 class MyAgent:
     def __init__(self, show_screen=False, load_model_path=None, mode=None):
+        
         # do not modify these
         self.show_screen = show_screen
         if mode is None:
@@ -17,13 +19,23 @@ class MyAgent:
         # modify these
         self.storage = []  # a data structure of your choice (D in the Algorithm 2)
         # A neural network MLP model which can be used as Q
-        self.network = MLPRegression(input_dim= 4, output_dim=2, learning_rate=1e-3)
+        self.network = MLPRegression(input_dim= 4, output_dim=2, learning_rate=1e-5)
         # network2 has identical structure to network1, network2 is the Q_f
-        self.network2 = MLPRegression(input_dim=4, output_dim=2, learning_rate=1e-3)
+        self.network2 = MLPRegression(input_dim=4, output_dim=2, learning_rate=1e-5)
         # initialise Q_f's parameter by Q's, here is an example
         MyAgent.update_network_model(net_to_update=self.network2, net_as_source=self.network)
 
+        #replay memory variables:
+        self.memory = []
+        self.gamma = 0.95
+        self.batch_size = 64
+
+        self.max_memory = 5000
+
         self.epsilon = 01.0  # probability ε in Algorithm 2
+        self.epsilon_decay = 0.9995
+        self.epsilon_min = 0.05
+
         self.n = 32  # the number of samples you'd want to draw from the storage each time
         self.discount_factor = 0.99  # γ in Algorithm 2
 
@@ -50,6 +62,33 @@ class MyAgent:
             return None
 
         return min(candidates, key=lambda p: p["x"])
+    
+    # Reward function
+    def reward(self, state):
+
+        if state["done"]:
+            if state["done_type"] == "hit_pipe":
+                return -100
+
+            elif state["done_type"] == "went_off_screen":
+                return -50
+
+            return -100
+
+        return 1
+
+    def rule_based_action(self, state, action_table):
+        bird_center = state["bird_y"] + state["bird_height"] / 2
+        next_pipe = self.get_next_pipe(state)
+
+        if next_pipe is None:
+            target_y = state["screen_height"] * 0.5
+        else:
+            target_y = (next_pipe["top"] + next_pipe["bottom"]) / 2
+
+        if bird_center > target_y:
+            return action_table["jump"]
+        return action_table["do_nothing"]
 
     #choose action 
     def choose_action(self, state: dict, action_table: dict):
@@ -57,39 +96,50 @@ class MyAgent:
         built_state = self.build_state(state)
 
         self.previous_state = built_state
-
-        # exploration
-        if self.mode == "train" and np.random.random() < self.epsilon:
-
-            # use simple heuristic instead of random chaos
-            bird_center = state["bird_y"] + state["bird_height"] / 2
-
-            next_pipe = self.get_next_pipe(state)
-
-            if next_pipe is None:
-                target_y = state["screen_height"] * 0.5
+        if self.mode == "train":
+        # mostly use heuristic while collecting good experience
+            if np.random.random() < 0.9:
+                action = self.rule_based_action(state, action_table)
             else:
-                target_y = (next_pipe["top"] + next_pipe["bottom"]) / 2
-
-            if bird_center > target_y:
-                action = action_table["jump"]
-            else:
-                action = action_table["do_nothing"]
-
+                q_values = self.network.predict(built_state.reshape(1, -1))[0]
+                action = action_table["jump"] if np.argmax(q_values) == 0 else action_table["do_nothing"]
         else:
-            # network prediction
             q_values = self.network.predict(built_state.reshape(1, -1))[0]
-
-            action_index = int(np.argmax(q_values))
-
-            if action_index == 0:
-                action = action_table["jump"]
-            else:
-                action = action_table["do_nothing"]
-
-        self.previous_action = action
+            action = action_table["jump"] if np.argmax(q_values) == 0 else action_table["do_nothing"]
 
         return action
+        # #exploration
+        # if self.mode == "train" and np.random.random() < self.epsilon:
+
+        #     # use simple heuristic instead of random chaos
+        #     bird_center = state["bird_y"] + state["bird_height"] / 2
+
+        #     next_pipe = self.get_next_pipe(state)
+
+        #     if next_pipe is None:
+        #         target_y = state["screen_height"] * 0.5
+        #     else:
+        #         target_y = (next_pipe["top"] + next_pipe["bottom"]) / 2
+
+        #     if bird_center > target_y:
+        #         action = action_table["jump"]
+        #     else:
+        #         action = action_table["do_nothing"]
+
+        # else:
+        #     # network prediction
+        #     q_values = self.network.predict(built_state.reshape(1, -1))[0]
+
+        #     action_index = int(np.argmax(q_values))
+
+        #     if action_index == 0:
+        #         action = action_table["jump"]
+        #     else:
+        #         action = action_table["do_nothing"]
+
+        # self.previous_action = action
+
+        # return action
     
         #return a_t
     # onehot(): affects learning of MLP
@@ -100,7 +150,6 @@ class MyAgent:
 
     # New Method: critical to agent learning
     # DQN state building
-
     def build_state(self, state):
 
         bird_y = state["bird_y"]
@@ -136,8 +185,80 @@ class MyAgent:
         Returns:
             None
         """
-        # following pseudocode to implement this function
-        pass
+        if self.mode != "train":
+            return
+
+        # build next state
+        next_state = self.build_state(state)
+
+        # reward
+        reward = self.reward(state)
+
+        # terminal state check
+        if state["done"]:
+            q_next = 0
+        else:
+            q_values_next = self.network2.predict(
+                next_state.reshape(1, -1)
+            )[0]
+
+            q_next = np.max(q_values_next)
+
+        # store transition
+        transition = (
+            self.previous_state,
+            self.previous_action,
+            reward,
+            q_next
+        )
+
+        self.memory.append(transition)
+
+        # limit memory size
+        if len(self.memory) > self.max_memory:
+            self.memory.pop(0)
+
+        # wait until enough samples
+        if len(self.memory) < self.batch_size:
+            return
+
+        # random minibatch
+        minibatch = random.sample(self.memory, self.batch_size)
+
+        X = []
+        Y = []
+        W = []
+
+        for phi_j, action_j, reward_j, q_next_j in minibatch:
+            target_value = reward_j + self.discount_factor * q_next_j
+
+            current_q = self.network.predict(phi_j.reshape(1, -1))[0]
+            target_q = current_q.copy()
+
+            if action_j == 0:
+                action_index = 0
+            else:
+                action_index = 1
+
+            target_q[action_index] = target_value
+
+            mask = np.zeros(2)
+            mask[action_index] = 1
+
+            X.append(phi_j)
+            Y.append(target_q)
+            W.append(mask)
+
+        X = np.array(X)
+        Y = np.array(Y)
+        W = np.array(W)
+
+        self.network.fit_step(X, Y, W)
+
+        # decay epsilon
+        if self.epsilon > self.epsilon_min:
+            self.epsilon *= self.epsilon_decay
+        
 
     def save_model(self, path: str = 'my_model.ckpt'):
         """
@@ -210,8 +331,10 @@ if __name__ == '__main__':
 
     episodes = 10
     scores = list()
+    best_score = -1
     for episode in range(episodes):
         env2.play(player=agent2)
+
         scores.append(env2.score)
 
     print(np.max(scores))
