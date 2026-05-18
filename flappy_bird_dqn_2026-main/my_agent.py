@@ -59,7 +59,16 @@ class MyAgent:
             print(action_table)
             self.printed_pipe_state = True
 
-        if state["bird_y"] > state["screen_height"] * 0.55:
+        bird_center = state["bird_y"] + state["bird_height"] / 2
+
+        next_pipe = self.get_next_pipe(state)
+
+        if next_pipe is None:
+            target_y = state["screen_height"] * 0.5
+        else:
+            target_y = (next_pipe["top"] + next_pipe["bottom"]) / 2
+
+        if bird_center > target_y:
             return action_table["jump"]
         else:
             return action_table["do_nothing"]
