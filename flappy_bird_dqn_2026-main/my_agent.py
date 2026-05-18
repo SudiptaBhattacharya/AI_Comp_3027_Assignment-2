@@ -35,7 +35,8 @@ class MyAgent:
         # do not modify this
         if load_model_path:
             self.load_model(load_model_path)
-
+    
+    #helper for rule-based agent: Not main DQN(just a fallback baseline)
     def get_next_pipe(self, state):
         bird_x = state["bird_x"]
         bird_width = state["bird_width"]
@@ -51,14 +52,12 @@ class MyAgent:
         return min(candidates, key=lambda p: p["x"])
 
     def choose_action(self, state: dict, action_table: dict):
+        built_state = self.build_state(state)
 
-        if len(state["pipes"]) > 0 and not hasattr(self, "printed_pipe_state"):
-            print("STATE WITH PIPE:")
-            print(state)
-            print("ACTION TABLE:")
-            print(action_table)
-            self.printed_pipe_state = True
-
+        if not hasattr(self, "printed_built_state"):
+            print("BUILT STATE:", built_state)
+            self.printed_built_state = True
+        #temporary rule-based action for now
         bird_center = state["bird_y"] + state["bird_height"] / 2
 
         next_pipe = self.get_next_pipe(state)
@@ -72,8 +71,37 @@ class MyAgent:
             return action_table["jump"]
         else:
             return action_table["do_nothing"]
-            
+        
+        
+        print(built_state)
         #return a_t
+    # New Method: critical to agent learning
+    # DQN state building
+    def build_state(self, state):
+
+        bird_y = state["bird_y"]
+        bird_velocity = state["bird_velocity"]
+
+        next_pipe = self.get_next_pipe(state)
+
+        if next_pipe is None:
+            pipe_distance_x = state["screen_width"]
+            gap_center = state["screen_height"] / 2
+        else:
+            pipe_distance_x = next_pipe["x"] - state["bird_x"]
+            gap_center = (next_pipe["top"] + next_pipe["bottom"]) / 2
+
+        bird_center = state["bird_y"] + state["bird_height"] / 2
+
+        vertical_distance = bird_center - gap_center
+
+        # normalize values(better for training)
+        return np.array([
+            bird_y / state["screen_height"],
+            bird_velocity / 10,
+            pipe_distance_x / state["screen_width"],
+            vertical_distance / state["screen_height"]
+    ])
 
     def receive_after_action_observation(self, state: dict, action_table: dict) -> None:
         """
