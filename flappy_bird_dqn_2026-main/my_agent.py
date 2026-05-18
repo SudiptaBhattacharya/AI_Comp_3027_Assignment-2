@@ -15,38 +15,54 @@ class MyAgent:
             self.mode = mode
 
         # modify these
-        self.storage = ...  # a data structure of your choice (D in the Algorithm 2)
+        self.storage = []  # a data structure of your choice (D in the Algorithm 2)
         # A neural network MLP model which can be used as Q
-        self.network = MLPRegression(input_dim=..., output_dim=..., learning_rate=...)
+        self.network = MLPRegression(input_dim= 4, output_dim=2, learning_rate=1e-3)
         # network2 has identical structure to network1, network2 is the Q_f
-        self.network2 = MLPRegression(input_dim=..., output_dim=..., learning_rate=...)
+        self.network2 = MLPRegression(input_dim=4, output_dim=2, learning_rate=1e-3)
         # initialise Q_f's parameter by Q's, here is an example
         MyAgent.update_network_model(net_to_update=self.network2, net_as_source=self.network)
 
-        self.epsilon = ...  # probability ε in Algorithm 2
-        self.n = ...  # the number of samples you'd want to draw from the storage each time
-        self.discount_factor = ...  # γ in Algorithm 2
+        self.epsilon = 1.0  # probability ε in Algorithm 2
+        self.n = 32  # the number of samples you'd want to draw from the storage each time
+        self.discount_factor = 0.99  # γ in Algorithm 2
+
+        # store previous info
+        self.previous_state = None
+        self.previous_action = None
+
 
         # do not modify this
         if load_model_path:
             self.load_model(load_model_path)
 
-        def choose_action(self, state: dict, action_table: dict) -> int:
-            """
-            This function should be called when the agent action is requested.
-            Args:
-                state: input state representation (the state dictionary from the game environment)
-                action_table: the action code dictionary
-            Returns:
-                action: the action code as specified by the action_table
-            """
-            # following pseudocode to implement this function
-            #a_t = ...
-            if not hasattr(self, "dict"):
-                print(state)
-                self.dict = True
+    def get_next_pipe(self, state):
+        bird_x = state["bird_x"]
+        bird_width = state["bird_width"]
 
-            return 0
+        candidates = []
+        for pipe in state["pipes"]:
+            if pipe["x"] + pipe["width"] >= bird_x:
+                candidates.append(pipe)
+
+        if len(candidates) == 0:
+            return None
+
+        return min(candidates, key=lambda p: p["x"])
+
+    def choose_action(self, state: dict, action_table: dict):
+
+        if len(state["pipes"]) > 0 and not hasattr(self, "printed_pipe_state"):
+            print("STATE WITH PIPE:")
+            print(state)
+            print("ACTION TABLE:")
+            print(action_table)
+            self.printed_pipe_state = True
+
+        if state["bird_y"] > state["screen_height"] * 0.55:
+            return action_table["jump"]
+        else:
+            return action_table["do_nothing"]
             
         #return a_t
 
@@ -60,6 +76,7 @@ class MyAgent:
             None
         """
         # following pseudocode to implement this function
+        pass
 
     def save_model(self, path: str = 'my_model.ckpt'):
         """
