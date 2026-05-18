@@ -23,7 +23,7 @@ class MyAgent:
         # initialise Q_f's parameter by Q's, here is an example
         MyAgent.update_network_model(net_to_update=self.network2, net_as_source=self.network)
 
-        self.epsilon = 1.0  # probability ε in Algorithm 2
+        self.epsilon = 01.0  # probability ε in Algorithm 2
         self.n = 32  # the number of samples you'd want to draw from the storage each time
         self.discount_factor = 0.99  # γ in Algorithm 2
 
@@ -51,32 +51,56 @@ class MyAgent:
 
         return min(candidates, key=lambda p: p["x"])
 
+    #choose action 
     def choose_action(self, state: dict, action_table: dict):
+
         built_state = self.build_state(state)
 
-        if not hasattr(self, "printed_built_state"):
-            print("BUILT STATE:", built_state)
-            self.printed_built_state = True
-        #temporary rule-based action for now
-        bird_center = state["bird_y"] + state["bird_height"] / 2
+        self.previous_state = built_state
 
-        next_pipe = self.get_next_pipe(state)
+        # exploration
+        if self.mode == "train" and np.random.random() < self.epsilon:
 
-        if next_pipe is None:
-            target_y = state["screen_height"] * 0.5
+            # use simple heuristic instead of random chaos
+            bird_center = state["bird_y"] + state["bird_height"] / 2
+
+            next_pipe = self.get_next_pipe(state)
+
+            if next_pipe is None:
+                target_y = state["screen_height"] * 0.5
+            else:
+                target_y = (next_pipe["top"] + next_pipe["bottom"]) / 2
+
+            if bird_center > target_y:
+                action = action_table["jump"]
+            else:
+                action = action_table["do_nothing"]
+
         else:
-            target_y = (next_pipe["top"] + next_pipe["bottom"]) / 2
+            # network prediction
+            q_values = self.network.predict(built_state.reshape(1, -1))[0]
 
-        if bird_center > target_y:
-            return action_table["jump"]
-        else:
-            return action_table["do_nothing"]
-        
-        
-        print(built_state)
+            action_index = int(np.argmax(q_values))
+
+            if action_index == 0:
+                action = action_table["jump"]
+            else:
+                action = action_table["do_nothing"]
+
+        self.previous_action = action
+
+        return action
+    
         #return a_t
+    # onehot(): affects learning of MLP
+    def onehot(self, action_index):
+        arr = np.zeros(2)
+        arr[action_index] = 1
+        return arr        #jump = 0 -> [1, 0], do_nothing = 1  -> [0, 1]
+
     # New Method: critical to agent learning
     # DQN state building
+
     def build_state(self, state):
 
         bird_y = state["bird_y"]
